@@ -20,10 +20,10 @@ import (
 // duplicate ID, number, year and sequence pair, non-nil idempotency key, or a
 // second invoice for the same order.
 //
-// ByID returns ErrNotFound for an unknown document. ByOrder returns all
-// documents bound to one order, the invoice plus its linked credit notes,
-// ordered by sequence; it returns an empty list for an unknown order.
-// ByIdempotencyKey returns ErrNotFound for an nil or unknown key.
+// ByID returns ErrNotFound for an unknown document. ByOrder returns the
+// invoice and its linked credit notes for one order, in sequence order; it
+// returns an empty list for an unknown order. ByIdempotencyKey returns
+// ErrNotFound for a nil or unknown key.
 // CreditedTotal returns the sum of the totals of all credit notes linked to
 // one original document, or zero when none exist. A linked document of any
 // other kind does not count.

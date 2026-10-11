@@ -38,8 +38,8 @@ type Party struct {
 	Phone   string `json:"phone,omitempty"`
 }
 
-// Seller is the issuer identity copied into every new snapshot. The caller
-// owns the values.
+// Seller is the issuer identity that the Service copies into every new
+// snapshot. The caller owns the values.
 type Seller struct {
 	Name    string
 	ID      string
@@ -70,8 +70,8 @@ type Snapshot struct {
 	Paid           bool   `json:"paid"`
 }
 
-// Document is one append-only ledger row with its frozen Snapshot. Issued
-// documents are never updated or deleted.
+// Document is one append-only ledger row with its frozen Snapshot. The
+// ledger never updates or deletes issued documents.
 type Document struct {
 	ID                     uuid.UUID  `json:"id"`
 	SequenceYear           int        `json:"sequence_year"`
@@ -115,7 +115,7 @@ func (sequence Sequence) Format(prefix string) string {
 	return fmt.Sprintf("%s-%d-%06d", prefix, sequence.Year, sequence.Number)
 }
 
-// Address is one frozen postal address supplied by the order source.
+// Address is one frozen postal address from the order source.
 type Address struct {
 	FirstName   string `json:"first_name"`
 	LastName    string `json:"last_name"`
@@ -126,7 +126,7 @@ type Address struct {
 	CountryCode string `json:"country_code"`
 }
 
-// OrderItem is one frozen order line supplied by the order source. The
+// OrderItem is one frozen order line from the order source. The
 // configuration is a human-readable summary; the ledger collapses repeated
 // whitespace. The tax fields mark legacy orders that carry tax data.
 type OrderItem struct {
@@ -163,8 +163,8 @@ type OrderFacts struct {
 }
 
 // Source supplies order facts to the Service. Order returns ErrNotFound when
-// the order does not exist. Any other error is propagated to the caller
-// unchanged.
+// the order does not exist. The ledger propagates any other error to the
+// caller unchanged.
 type Source interface {
 	Order(ctx context.Context, orderID uuid.UUID) (OrderFacts, error)
 }

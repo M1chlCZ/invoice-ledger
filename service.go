@@ -44,7 +44,8 @@ type Options struct {
 	// is Europe/Prague.
 	Location *time.Location
 
-	// Seller is the issuer identity frozen into each new snapshot.
+	// Seller is the issuer identity that the Service freezes into each new
+	// snapshot.
 	Seller Seller
 
 	// InvoicePrefix starts regular invoice numbers. The default is FA.
@@ -125,8 +126,8 @@ func (service *Service) Get(ctx context.Context, id uuid.UUID) (Document, error)
 	return document, nil
 }
 
-// ListByOrder returns all documents bound to one order: the invoice and every
-// linked credit note, ordered by sequence year and sequence number.
+// ListByOrder returns the invoice and every linked credit note for one order,
+// in sequence year and sequence number order.
 func (service *Service) ListByOrder(ctx context.Context, orderID uuid.UUID) ([]Document, error) {
 	documents, err := service.store.ByOrder(ctx, orderID)
 	if err != nil {
@@ -135,8 +136,8 @@ func (service *Service) ListByOrder(ctx context.Context, orderID uuid.UUID) ([]D
 	return documents, nil
 }
 
-// Render returns the bytes produced by the configured Renderer for one stored
-// document.
+// Render returns the bytes that the configured Renderer produces for one
+// stored document.
 func (service *Service) Render(ctx context.Context, id uuid.UUID) ([]byte, error) {
 	if service.renderer == nil {
 		return nil, ErrNoRenderer

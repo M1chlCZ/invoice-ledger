@@ -16,7 +16,7 @@ type BasisPoints int64
 // Scale is the number of basis points in one whole unit.
 const Scale BasisPoints = 10_000
 
-// The sentinel error set returned by vatkit functions.
+// The sentinel errors that vatkit functions return.
 var (
 	// ErrInvalidAmount reports a negative amount or a negative price.
 	ErrInvalidAmount = errors.New("vatkit: amount is out of range")
@@ -71,9 +71,9 @@ func TaxFromGross(gross int64, rate BasisPoints) (int64, error) {
 	return tax, nil
 }
 
-// ApplyBasisPoints returns the amount increased by a basis-point rate of the
-// amount, rounded half-up. It is the inverse framing of a catalog price
-// delta: the returned value is amount plus the computed delta.
+// ApplyBasisPoints returns the amount plus a basis-point rate of the amount,
+// rounded half-up. It is the inverse framing of a catalog price delta: the
+// returned value is amount plus the computed delta.
 func ApplyBasisPoints(amount int64, rate BasisPoints) (int64, error) {
 	if amount < 0 {
 		return 0, ErrInvalidAmount

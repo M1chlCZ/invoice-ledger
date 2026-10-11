@@ -22,8 +22,8 @@ type CreditRequest struct {
 
 // Credit creates a credit note that negates part or all of one original
 // invoice. Credit is idempotent by key and payload hash and is safe to replay.
-// Calls on one Service are serialized, so the uncredited remainder cannot be
-// exceeded inside one process. When the configured Store implements
+// The Service serializes calls, so concurrent calls on one Service cannot
+// exceed the uncredited remainder. When the configured Store implements
 // CreditInserter, the insert itself enforces the limit atomically; otherwise a
 // shared cross-process Store must enforce the same rule itself.
 //

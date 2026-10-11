@@ -2,7 +2,7 @@ package invoiceledger
 
 import "errors"
 
-// The sentinel error set returned by Service and by Store implementations.
+// The sentinel errors that Service and Store implementations return.
 var (
 	// ErrUnprocessable reports a request or a fact set that violates the
 	// ledger contract.
