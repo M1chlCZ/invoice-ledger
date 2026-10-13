@@ -1,7 +1,10 @@
 # invoice-ledger
 
-`invoice-ledger` is a pure-domain, append-only invoice ledger for Go. It has no
-database, HTTP, or rendering code. The caller supplies order facts and storage.
+`invoice-ledger` is a pure-domain, append-only invoice ledger for Go. The core
+package has no database, HTTP, or rendering code; the caller supplies order
+facts and storage. A separate `postgres` subpackage adapts the ledger to the
+PostgreSQL schema it was extracted from, and `cmd/ledgerctl` exports the ledger
+to CSV.
 
 ## What it is
 
@@ -15,6 +18,9 @@ database, HTTP, or rendering code. The caller supplies order facts and storage.
   invoice.
 - Blocks over-credit above the uncredited remainder.
 - Reads one document by ID and lists all documents of one order.
+- Tracks external turnover entries with idempotent create and void operations.
+- Keeps a versioned monitoring settings singleton.
+- Exports the ledger as deterministic RFC 4180 CSV.
 
 ## Why
 
@@ -192,6 +198,124 @@ A plugged-in `Renderer` is inside the trust boundary for buyer personal data:
 it receives the frozen buyer party and order snapshot. Configure only
 renderers that your privacy policy allows to process that data.
 
+## External turnover and settings
+
+The optional `TurnoverStore` and `SettingsStore` capabilities extend a `Store`
+with the monitoring side of the ledger. `MemoryStore` and the `postgres`
+adapter implement both. `Service.CreateTurnover`, `Service.VoidTurnover`,
+`Service.ListTurnover`, `Service.GetSettings` and `Service.UpdateSettings`
+return `ErrUnsupported` for a store without the capability.
+
+### External turnover
+
+`TurnoverEntry` is one append-only manual turnover row.
+`TurnoverClassification` is one of `pending`, `domestic`, `eu_tbe` and
+`excluded`. A void appends a separate reversal row with a negative amount and
+`ReversalOf` set; the original row is never changed.
+
+| Operation | Contract |
+| --- | --- |
+| `CreateTurnover(ctx, TurnoverRequest)` | Appends a positive entry with a required occurrence date, a valid classification and an empty or two-letter uppercase country code. The note is optional and limited to 500 runes. Idempotent by key and payload hash. |
+| `VoidTurnover(ctx, TurnoverVoidRequest)` | Appends the reversal of one entry and requires a reason. A missing entry returns `ErrNotFound`; a reversal, a non-positive entry or an already reversed entry returns `ErrConflict`. Idempotent by key and payload hash. |
+| `ListTurnover(ctx, year)` | Returns one calendar year of entries ordered by creation time descending and then by ID ascending. Year zero returns every entry. |
+
+A `TurnoverStore` enforces the "one reversal per entry" rule atomically,
+including across processes that share the store.
+
+### Settings
+
+`Settings` is the singleton monitoring configuration: `ShopWarningMinor`,
+`ExternalPlanningMinor`, `Version` and `UpdatedAt`. Numbering is not a
+setting; `Store.AllocateNumber` owns the year-bound sequence series.
+`UpdateSettings` uses optimistic versioning. With a non-nil idempotency key the
+applied outcome is recorded, so a replay returns that outcome even after later
+updates changed the live singleton; a stale version returns `ErrConflict`. The
+memory store starts at the documented defaults `DefaultShopWarningMinor` and
+`DefaultExternalPlanningMinor` with version one.
+
+## CSV export
+
+`ExportCSV(w, documents)` writes one RFC 4180 row per document with a fixed
+header, LF line endings, plain integer minor units and RFC 3339 UTC
+timestamps. The input is copied and ordered by sequence year, sequence number
+and ID, so the same document set always produces the same bytes. Empty fields
+are empty cells; quoting is applied only when RFC 4180 requires it.
+
+The columns, in order: `number`, `kind`, `sequence_year`, `sequence_number`,
+`order_number`, `original_number`, `refund_reference`, `refunded_on`,
+`currency`, `items_minor`, `shipping_minor`, `discount_minor`, `total_minor`,
+`supply_date`, `issued_date`, `issued_at`, `paid`, `reason`, `locale`,
+`buyer_country`, `id`, `created_at`.
+
+The optional `DocumentLister` capability reads the whole ledger for export.
+`postgres.Store` implements it.
+
+## PostgreSQL adapter
+
+`postgres.Open(ctx, databaseURL)` connects and returns a `*postgres.Store`
+that implements `Store`, `CreditInserter`, `TurnoverStore`, `SettingsStore`,
+`DocumentLister` and `Source` against the shop schema. `postgres.New(pool)`
+wraps an existing `*pgxpool.Pool`. The adapter never creates or changes schema
+objects.
+
+Required tables:
+
+| Table | Used by |
+| --- | --- |
+| `shop.invoices` | documents |
+| `shop.invoice_counters` | number allocation |
+| `shop.invoice_settings` | settings singleton |
+| `shop.invoice_settings_requests` | settings update deduplication |
+| `shop.external_turnover_entries` | external turnover |
+| `shop.orders`, `shop.order_items`, `shop.order_shipping` | `Source` order facts |
+
+Mapping decisions:
+
+- Documents keep the flat snapshot shape of the shop column, so
+  `snapshot->>'buyer_name'` and the other flat party keys keep working. Buyer
+  ID and phone have no column in that shape and are dropped on a round trip.
+- The schema accepts CZK documents only and enforces its own amount, date and
+  reconciliation constraints. Violations surface as `ErrUnprocessable`;
+  uniqueness and foreign-key conflicts surface as `ErrConflict`.
+- `InsertCredit` locks the original invoice row, sums the linked credit notes
+  and inserts in one transaction, so two processes cannot over-credit.
+- `UpdateSettings` locks the singleton before the version check and rechecks a
+  concurrent request with the same key before reporting a version conflict. A
+  nil idempotency key applies a plain version-checked update and is not
+  recorded in the dedupe log.
+- `AllocateNumber` is one upsert on `shop.invoice_counters`. Allocation and
+  insert stay separate, so numbering gaps remain possible by design.
+- The adapter writes no `actor_user_id` and stores anonymous ledger rows.
+
+Integration tests are skipped unless `INVOICELEDGER_TEST_DATABASE_URL` is set.
+They reset the `shop` schema of a disposable database and apply the invoice
+ledger migration, so point the variable only at a database whose name contains
+`test`:
+
+```sh
+INVOICELEDGER_TEST_DATABASE_URL=postgres://user@127.0.0.1:5432/invoiceledger_test \
+  go test -race -count=1 ./...
+```
+
+The tests carry a byte-identical copy of the migration. Set
+`INVOICELEDGER_TEST_MIGRATION_SQL` to an authoritative migration path to apply
+that file instead.
+
+## Command line
+
+`cmd/ledgerctl` exports the ledger as CSV from PostgreSQL or from a JSON
+document array in the stable `Document` JSON mapping:
+
+```sh
+ledgerctl export-csv -database-url "$DATABASE_URL" -output ledger.csv
+ledgerctl export-csv -input documents.json
+```
+
+`-database-url` falls back to `INVOICELEDGER_DATABASE_URL`. Exactly one of
+`-database-url` and `-input` is required; `-input` wins when the environment
+variable is set but the flag is not. `-output` defaults to standard output.
+Exit codes are 0 for success, 1 for a runtime failure and 2 for a usage error.
+
 ## Invariants
 
 | Invariant | Behavior |
@@ -230,7 +354,9 @@ the `Europe/Prague` numbering location. All of them are configurable through
 ## Data handling
 
 - The module stores no data. The chosen `Store` adapter controls persistence.
-- The module makes no network calls and collects no telemetry.
+- The core package makes no network calls and collects no telemetry. The
+  `postgres` adapter connects only to the database URL the caller supplies,
+  and `cmd/ledgerctl` only reads the input it is given.
 - `Seller`, `Party`, and `OrderFacts` values come from the caller. The module
   copies them into a snapshot and writes no logs.
 - The caller is responsible for personal-data policy, encryption, retention,
@@ -245,6 +371,10 @@ go vet ./...
 go test -race -count=1 -cover ./...
 go build ./...
 ```
+
+The `postgres` integration tests run only when `INVOICELEDGER_TEST_DATABASE_URL`
+points at a disposable database whose name contains `test`; see the
+PostgreSQL adapter section.
 
 ## License
 

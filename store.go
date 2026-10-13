@@ -41,6 +41,71 @@ type Store interface {
 	CreditedTotal(ctx context.Context, originalID uuid.UUID) (int64, error)
 }
 
+// TurnoverStore is an optional Store capability that persists the
+// append-only external turnover ledger. Entries are manual turnover rows
+// outside the document ledger; reversals are separate rows with a negative
+// amount and a link to the row they reverse.
+//
+// InsertTurnover appends one non-reversal entry, assigns an ID when
+// TurnoverEntry.ID is zero, and assigns CreatedAt when it is zero. It returns
+// ErrUnprocessable for an entry that carries reversal fields, a non-positive
+// amount, a reason, a missing or invalid occurrence date, an unknown
+// classification, or an invalid country code, and ErrConflict for a duplicate
+// ID or a duplicate non-nil idempotency key.
+//
+// InsertTurnoverReversal appends the reversal of the entry named by
+// TurnoverEntry.ReversalOf. The store locks the target row, accepts only a
+// target that is not itself a reversal, carries a positive amount, and has no
+// reversal yet, and derives the signed amount and the occurrence date, the
+// country code, the classification, and the note from that target.
+// TurnoverEntry.Reason is required and is stored on the new row.
+// InsertTurnoverReversal assigns an ID when TurnoverEntry.ID is zero and
+// CreatedAt when it is zero. It returns ErrNotFound for a missing target,
+// ErrUnprocessable for a missing target reference or a missing reason, and
+// ErrConflict when the target is ineligible, already reversed, or the new row
+// duplicates an ID or a non-nil idempotency key.
+//
+// TurnoverByID returns one entry or ErrNotFound. TurnoverByIdempotencyKey
+// returns one entry or ErrNotFound for a nil or unknown key. TurnoverByYear
+// returns the entries whose occurrence date falls in the given calendar year,
+// or every entry when year is zero, ordered by creation time descending and
+// then by ID ascending; a year outside 0 to 9999 returns ErrUnprocessable.
+type TurnoverStore interface {
+	InsertTurnover(ctx context.Context, entry TurnoverEntry) (TurnoverEntry, error)
+	InsertTurnoverReversal(ctx context.Context, entry TurnoverEntry) (TurnoverEntry, error)
+	TurnoverByID(ctx context.Context, id uuid.UUID) (TurnoverEntry, error)
+	TurnoverByIdempotencyKey(ctx context.Context, key uuid.UUID) (TurnoverEntry, error)
+	TurnoverByYear(ctx context.Context, year int) ([]TurnoverEntry, error)
+}
+
+// SettingsStore is an optional Store capability that persists the invoicing
+// settings singleton and its durable update request log.
+//
+// GetSettings returns the current singleton. UpdateSettings replays or
+// applies one version-checked update: when the non-nil idempotency key
+// already recorded an accepted update it returns that recorded outcome with
+// replayed true, and the same key with a different payload hash returns
+// ErrIdempotencyConflict. Otherwise the update applies only when the stored
+// version equals SettingsUpdate.Version; a stale version returns ErrConflict.
+// An accepted update increments the version, stores the given payload hash
+// and the applied outcome for a non-nil key, and returns the new settings
+// with replayed false.
+type SettingsStore interface {
+	GetSettings(ctx context.Context) (Settings, error)
+	UpdateSettings(
+		ctx context.Context,
+		update SettingsUpdate,
+		payloadHash []byte,
+	) (Settings, bool, error)
+}
+
+// DocumentLister is an optional Store capability for reading the whole
+// append-only ledger. ListDocuments returns every document ordered by
+// sequence year and sequence number; an empty ledger returns an empty slice.
+type DocumentLister interface {
+	ListDocuments(ctx context.Context) ([]Document, error)
+}
+
 // CreditInserter is an optional Store capability. A Store that implements it
 // persists a credit note only when the sum of the linked credit-note totals
 // stays within the given limit, atomically with respect to every concurrent

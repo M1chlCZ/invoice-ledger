@@ -31,4 +31,9 @@ var (
 
 	// ErrNoRenderer reports a Render call without a configured Renderer.
 	ErrNoRenderer = errors.New("invoiceledger: no renderer is configured")
+
+	// ErrUnsupported reports a Service call that needs a Store capability
+	// the configured Store does not implement, for example turnover
+	// management with a Store that is not a TurnoverStore.
+	ErrUnsupported = errors.New("invoiceledger: store does not support the requested capability")
 )

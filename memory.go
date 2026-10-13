@@ -17,13 +17,19 @@ const (
 
 // MemoryStore is a mutex-protected in-memory Store for tests and small tools.
 type MemoryStore struct {
-	mu         sync.Mutex
-	documents  []Document
-	byID       map[uuid.UUID]int
-	byNumber   map[string]struct{}
-	bySequence map[sequenceKey]struct{}
-	byKey      map[uuid.UUID]struct{}
-	counters   map[int]int64
+	mu           sync.Mutex
+	documents    []Document
+	byID         map[uuid.UUID]int
+	byNumber     map[string]struct{}
+	bySequence   map[sequenceKey]struct{}
+	byKey        map[uuid.UUID]struct{}
+	counters     map[int]int64
+	turnover     []TurnoverEntry
+	turnoverID   map[uuid.UUID]int
+	turnoverKey  map[uuid.UUID]int
+	turnoverLink map[uuid.UUID]struct{}
+	settings     Settings
+	settingsKeys map[uuid.UUID]settingsRequest
 }
 
 type sequenceKey struct {
@@ -31,14 +37,29 @@ type sequenceKey struct {
 	number int64
 }
 
+type settingsRequest struct {
+	payloadHash []byte
+	settings    Settings
+}
+
 // NewMemoryStore returns an empty in-memory Store.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		byID:       make(map[uuid.UUID]int),
-		byNumber:   make(map[string]struct{}),
-		bySequence: make(map[sequenceKey]struct{}),
-		byKey:      make(map[uuid.UUID]struct{}),
-		counters:   make(map[int]int64),
+		byID:         make(map[uuid.UUID]int),
+		byNumber:     make(map[string]struct{}),
+		bySequence:   make(map[sequenceKey]struct{}),
+		byKey:        make(map[uuid.UUID]struct{}),
+		counters:     make(map[int]int64),
+		turnoverID:   make(map[uuid.UUID]int),
+		turnoverKey:  make(map[uuid.UUID]int),
+		turnoverLink: make(map[uuid.UUID]struct{}),
+		settings: Settings{
+			ShopWarningMinor:      DefaultShopWarningMinor,
+			ExternalPlanningMinor: DefaultExternalPlanningMinor,
+			Version:               1,
+			UpdatedAt:             time.Now().UTC(),
+		},
+		settingsKeys: make(map[uuid.UUID]settingsRequest),
 	}
 }
 
